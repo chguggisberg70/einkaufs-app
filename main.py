@@ -264,16 +264,16 @@ def einkaufs_formular():
   <meta charset="utf-8">
   <title>Einkauf erfassen</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-    /* Basis-Schriftgrösse */
+      <style>
+    /* Basis-Schriftgrösse Desktop / Tablet */
     :root {{
-      font-size: 18px;
+      font-size: 20px;
     }}
 
-    /* Auf kleineren Displays (Handy) Schrift noch etwas grösser */
+    /* Auf kleinen Displays (Handy): Schrift noch grösser */
     @media (max-width: 600px) {{
       :root {{
-        font-size: 21px;
+        font-size: 24px;
       }}
     }}
 
@@ -281,14 +281,17 @@ def einkaufs_formular():
       font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 0;
       padding: 0;
-      background: #ffffff;  /* kein grauer Rand mehr */
+      background: #ffffff;
+      -webkit-text-size-adjust: 100%;
     }}
+
     .page {{
       min-height: 100vh;
       padding: 0;
       margin: 0;
       box-sizing: border-box;
     }}
+
     .container {{
       width: 100%;
       max-width: 100%;
@@ -298,61 +301,71 @@ def einkaufs_formular():
       border-radius: 0;
       box-shadow: none;
     }}
+
     h1 {{
-      font-size: 1.4rem;
+      font-size: 1.5rem;  /* deutlich grösser */
       margin-top: 0;
       margin-bottom: 16px;
       text-align: center;
     }}
+
     label {{
       display: block;
-      margin-top: 14px;
-      font-size: 0.95rem;
+      margin-top: 16px;
+      font-size: 1.1rem;
     }}
+
     input, select, textarea {{
       width: 100%;
-      font-size: 1.2rem;
-      padding: 14px 12px;
-      margin-top: 6px;
+      font-size: 1.4rem;    /* Eingabe-Felder schön gross */
+      padding: 16px 14px;
+      margin-top: 8px;
       box-sizing: border-box;
       border-radius: 12px;
       border: 1px solid #d1d5db;
     }}
+
     textarea {{
       resize: vertical;
-      min-height: 70px;
+      min-height: 80px;
     }}
+
     button {{
-      margin-top: 22px;
+      margin-top: 24px;
       width: 100%;
-      font-size: 1.2rem;
-      padding: 14px;
+      font-size: 1.4rem;    /* grosser Button-Text */
+      padding: 16px;
       border-radius: 9999px;
       border: none;
       background: #2563eb;
       color: white;
       font-weight: 600;
     }}
+
     button:active {{
       transform: scale(0.98);
     }}
+
     #msg {{
-      margin-top: 10px;
-      font-size: 0.9rem;
+      margin-top: 12px;
+      font-size: 1rem;
       text-align: center;
     }}
+
     .footer-row {{
-      margin-top: 14px;
-      font-size: 0.9rem;
+      margin-top: 16px;
+      font-size: 1rem;
       display: flex;
       justify-content: flex-end;
       color: #374151;
     }}
+
     .footer-row span.sum {{
       font-weight: 600;
       margin-left: 6px;
     }}
   </style>
+
 
 </head>
 <body>
