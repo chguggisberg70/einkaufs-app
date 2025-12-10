@@ -100,6 +100,46 @@ def find_page_by_name(db_id: str, name: str) -> Optional[str]:
     if not results:
         return None
     return results[0]["id"]
+def get_lebensmittel_sum_for_month(monat_name: str) -> float:
+    """Summe aller Beträge mit Kategorie_Text 'Lebensmittel' für einen Monat."""
+    if not monat_name or not DB_TRANSAKT_ID or not DB_MONAT_ID:
+        return 0.0
+
+    month_id = find_page_by_name(DB_MONAT_ID, monat_name)
+    if not month_id:
+        return 0.0
+
+    url = f"{NOTION_API_BASE}/databases/{DB_TRANSAKT_ID}/query"
+    payload = {
+        "filter": {
+            "and": [
+                {
+                    "property": "Monat",
+                    "relation": {"contains": month_id},
+                },
+                {
+                    "property": "Kategorie_Text",
+                    "rich_text": {"equals": "Lebensmittel"},
+                },
+            ]
+        }
+    }
+
+    try:
+        resp = requests.post(url, headers=http_headers, json=payload)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Fehler beim Lesen von Transaktionen: {e}")
+        return 0.0
+
+    data = resp.json()
+    total = 0.0
+    for page in data.get("results", []):
+        betrag = page["properties"].get("Betrag", {}).get("number")
+        if isinstance(betrag, (int, float)):
+            total += betrag
+
+    return total
 
 
 @app.get("/")
@@ -166,22 +206,41 @@ def add_transaction(tx: Transaction):
 from datetime import date
 from fastapi.responses import HTMLResponse
 
+@from datetime import date
+from fastapi.responses import HTMLResponse
+
 @app.get("/formular", response_class=HTMLResponse)
 def einkaufs_formular():
-    # Optionen direkt aus Notion holen (wie /options)
-    options = get_options()  # nutzt deine bestehende Funktion
+    # Optionen holen
+    options = get_options()
 
-    today_str = date.today().isoformat()  # yyyy-mm-dd für <input type="date">
+    today_str = date.today().isoformat()
     default_monat = options.monate[0] if options.monate else ""
-
-    kategorie_options_html = "".join(
-        f'<option value="{k}">{k}</option>' for k in options.kategorien
+    default_kat = "Lebensmittel" if "Lebensmittel" in options.kategorien else (
+        options.kategorien[0] if options.kategorien else ""
     )
 
-    monat_options_html = "".join(
-        f'<option value="{m}"{" selected" if m == default_monat else ""}>{m}</option>'
-        for m in options.monate
-    )
+    # Total Lebensmittel für Default-Monat
+    total_leb = get_lebensmittel_sum_for_month(default_monat) if default_monat else 0.0
+    total_leb_text = f"{total_leb:0.2f} CHF"
+
+    # Dropdown-HTML bauen
+    def build_kat_options():
+        html = ""
+        for k in options.kategorien:
+            selected = " selected" if k == default_kat else ""
+            html += f'<option value="{k}"{selected}>{k}</option>'
+        return html
+
+    def build_monat_options():
+        html = ""
+        for m in options.monate:
+            selected = " selected" if m == default_monat else ""
+            html += f'<option value="{m}"{selected}>{m}</option>'
+        return html
+
+    kategorie_options_html = build_kat_options()
+    monat_options_html = build_monat_options()
 
     html = f"""<!DOCTYPE html>
 <html lang="de">
@@ -197,38 +256,42 @@ def einkaufs_formular():
       background: #f3f4f6;
     }}
     .container {{
-      max-width: 480px;
-      margin: 0 auto;
+      max-width: 600px;
+      margin: 12px auto;
       background: #ffffff;
-      padding: 16px;
-      border-radius: 16px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      padding: 20px 16px 16px 16px;
+      border-radius: 18px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.10);
     }}
     h1 {{
-      font-size: 22px;
+      font-size: 24px;
       margin-top: 0;
-      margin-bottom: 12px;
+      margin-bottom: 16px;
       text-align: center;
     }}
     label {{
       display: block;
-      margin-top: 12px;
+      margin-top: 14px;
       font-size: 16px;
     }}
     input, select, textarea {{
       width: 100%;
-      font-size: 18px;
-      padding: 10px 12px;
-      margin-top: 4px;
+      font-size: 20px;
+      padding: 14px 12px;
+      margin-top: 6px;
       box-sizing: border-box;
-      border-radius: 10px;
+      border-radius: 12px;
       border: 1px solid #d1d5db;
     }}
+    textarea {{
+      resize: vertical;
+      min-height: 70px;
+    }}
     button {{
-      margin-top: 20px;
+      margin-top: 22px;
       width: 100%;
-      font-size: 18px;
-      padding: 12px;
+      font-size: 20px;
+      padding: 14px;
       border-radius: 9999px;
       border: none;
       background: #2563eb;
@@ -238,12 +301,28 @@ def einkaufs_formular():
     button:active {{
       transform: scale(0.98);
     }}
+    #msg {{
+      margin-top: 10px;
+      font-size: 14px;
+      text-align: center;
+    }}
+    .footer-row {{
+      margin-top: 14px;
+      font-size: 14px;
+      display: flex;
+      justify-content: flex-end;
+      color: #374151;
+    }}
+    .footer-row span.sum {{
+      font-weight: 600;
+      margin-left: 6px;
+    }}
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Einkauf erfassen</h1>
-    <form method="post" action="/add">
+    <form id="txForm">
       <label for="name">Name</label>
       <input id="name" name="name" type="text" required>
 
@@ -267,11 +346,57 @@ def einkaufs_formular():
       <textarea id="notiz" name="notiz" rows="2"></textarea>
 
       <button type="submit">Speichern</button>
+      <p id="msg"></p>
+
+      <div class="footer-row">
+        <span>Lebensmittel total {default_monat}:</span>
+        <span class="sum">{total_leb_text}</span>
+      </div>
     </form>
   </div>
+
+  <script>
+    const form = document.getElementById("txForm");
+    const msg = document.getElementById("msg");
+
+    form.addEventListener("submit", async (e) => {{
+      e.preventDefault();
+      msg.textContent = "Speichere...";
+
+      const betragRaw = document.getElementById("betrag").value.trim();
+      const betragNorm = betragRaw.replace(",", ".");
+
+      const data = {{
+        name: document.getElementById("name").value,
+        betrag: parseFloat(betragNorm),
+        datum: document.getElementById("datum").value,
+        kategorie: document.getElementById("kategorie").value,
+        monat: document.getElementById("monat").value,
+        notiz: document.getElementById("notiz").value || null,
+      }};
+
+      try {{
+        const res = await fetch("/add", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify(data),
+        }});
+
+        if (!res.ok) throw new Error("Fehler beim Speichern");
+
+        msg.textContent = "Gespeichert ✅";
+
+        document.getElementById("name").value = "";
+        document.getElementById("betrag").value = "";
+        document.getElementById("notiz").value = "";
+        document.getElementById("name").focus();
+      }} catch (err) {{
+        console.error(err);
+        msg.textContent = "Fehler beim Speichern ❌";
+      }}
+    }});
+  </script>
 </body>
 </html>
 """
     return HTMLResponse(content=html)
-
-
