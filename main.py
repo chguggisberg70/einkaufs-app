@@ -163,137 +163,115 @@ def add_transaction(tx: Transaction):
     return {"status": "ok"}
 
 
+from datetime import date
+from fastapi.responses import HTMLResponse
+
 @app.get("/formular", response_class=HTMLResponse)
 def einkaufs_formular():
-    # HTML-Formular mit Dropdowns für Kategorien und Monate
-    return """
-<!DOCTYPE html>
+    # Optionen direkt aus Notion holen (wie /options)
+    options = get_options()  # nutzt deine bestehende Funktion
+
+    today_str = date.today().isoformat()  # yyyy-mm-dd für <input type="date">
+    default_monat = options.monate[0] if options.monate else ""
+
+    kategorie_options_html = "".join(
+        f'<option value="{k}">{k}</option>' for k in options.kategorien
+    )
+
+    monat_options_html = "".join(
+        f'<option value="{m}"{" selected" if m == default_monat else ""}>{m}</option>'
+        for m in options.monate
+    )
+
+    html = f"""<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8">
   <title>Einkauf erfassen</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {{
+      font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #f3f4f6;
+    }}
+    .container {{
+      max-width: 480px;
+      margin: 0 auto;
+      background: #ffffff;
+      padding: 16px;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }}
+    h1 {{
+      font-size: 22px;
+      margin-top: 0;
+      margin-bottom: 12px;
+      text-align: center;
+    }}
+    label {{
+      display: block;
+      margin-top: 12px;
+      font-size: 16px;
+    }}
+    input, select, textarea {{
+      width: 100%;
+      font-size: 18px;
+      padding: 10px 12px;
+      margin-top: 4px;
+      box-sizing: border-box;
+      border-radius: 10px;
+      border: 1px solid #d1d5db;
+    }}
+    button {{
+      margin-top: 20px;
+      width: 100%;
+      font-size: 18px;
+      padding: 12px;
+      border-radius: 9999px;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+    }}
+    button:active {{
+      transform: scale(0.98);
+    }}
+  </style>
 </head>
 <body>
-  <h1>Einkauf erfassen</h1>
+  <div class="container">
+    <h1>Einkauf erfassen</h1>
+    <form method="post" action="/add">
+      <label for="name">Name</label>
+      <input id="name" name="name" type="text" required>
 
-  <form id="txForm">
-    <label>
-      Name<br />
-      <input type="text" id="name" required placeholder="z.B. Migros" />
-    </label>
-    <br /><br />
+      <label for="betrag">Betrag</label>
+      <input id="betrag" name="betrag" type="number" step="0.01" inputmode="decimal" required>
 
-    <label>
-      Betrag<br />
-      <input type="number" id="betrag" required step="0.05" />
-    </label>
-    <br /><br />
+      <label for="datum">Datum</label>
+      <input id="datum" name="datum" type="date" value="{today_str}" required>
 
-    <label>
-      Datum<br />
-      <input type="date" id="datum" />
-    </label>
-    <br /><br />
-
-    <label>
-      Kategorie<br />
-      <select id="kategorie">
-        <option value="">-- bitte wählen --</option>
+      <label for="kategorie">Kategorie</label>
+      <select id="kategorie" name="kategorie" required>
+        {kategorie_options_html}
       </select>
-    </label>
-    <br /><br />
 
-    <label>
-      Monat<br />
-      <select id="monat">
-        <option value="">-- bitte wählen --</option>
+      <label for="monat">Monat</label>
+      <select id="monat" name="monat" required>
+        {monat_options_html}
       </select>
-    </label>
-    <br /><br />
 
-    <label>
-      Notiz<br />
-      <input type="text" id="notiz" placeholder="optional" />
-    </label>
-    <br /><br />
+      <label for="notiz">Notiz</label>
+      <textarea id="notiz" name="notiz" rows="2"></textarea>
 
-    <button type="submit">Speichern</button>
-    <p id="msg"></p>
-  </form>
-
-  <script>
-    const form = document.getElementById("txForm");
-    const msg = document.getElementById("msg");
-    const datumFeld = document.getElementById("datum");
-    const katSelect = document.getElementById("kategorie");
-    const monatSelect = document.getElementById("monat");
-
-    // heutiges Datum setzen
-    datumFeld.value = new Date().toISOString().substring(0, 10);
-
-    async function loadOptions() {
-      try {
-        const res = await fetch("/options");
-        const data = await res.json();
-
-        // Kategorien einfüllen
-        data.kategorien.forEach((name) => {
-          const opt = document.createElement("option");
-          opt.value = name;
-          opt.textContent = name;
-          katSelect.appendChild(opt);
-        });
-
-        // Monate einfüllen
-        data.monate.forEach((name) => {
-          const opt = document.createElement("option");
-          opt.value = name;
-          opt.textContent = name;
-          monatSelect.appendChild(opt);
-        });
-      } catch (err) {
-        console.error("Fehler beim Laden der Optionen:", err);
-        msg.textContent = "Fehler beim Laden der Auswahlwerte ❌";
-      }
-    }
-
-    loadOptions();
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      msg.textContent = "Sende...";
-
-      const data = {
-        name: document.getElementById("name").value,
-        betrag: parseFloat(document.getElementById("betrag").value),
-        datum: datumFeld.value,
-        kategorie: katSelect.value || null,
-        monat: monatSelect.value || null,
-        notiz: document.getElementById("notiz").value || null,
-      };
-
-      try {
-        const res = await fetch("/add", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        });
-
-        if (!res.ok) throw new Error("Fehler beim Speichern");
-
-        msg.textContent = "Gespeichert ✅";
-        form.reset();
-        datumFeld.value = new Date().toISOString().substring(0, 10);
-        katSelect.selectedIndex = 0;
-        monatSelect.selectedIndex = 0;
-      } catch (err) {
-        console.error(err);
-        msg.textContent = "Fehler ❌";
-      }
-    });
-  </script>
+      <button type="submit">Speichern</button>
+    </form>
+  </div>
 </body>
 </html>
 """
+    return HTMLResponse(content=html)
+
 
