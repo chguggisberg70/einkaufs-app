@@ -264,15 +264,24 @@ def einkaufs_formular():
   <meta charset="utf-8">
   <title>Einkauf erfassen</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
+    <style>
+    /* Basis-Schriftgrösse */
     :root {{
       font-size: 18px;
     }}
+
+    /* Auf kleineren Displays (Handy) Schrift noch etwas grösser */
+    @media (max-width: 600px) {{
+      :root {{
+        font-size: 21px;
+      }}
+    }}
+
     body {{
       font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 0;
       padding: 0;
-      background: #f3f4f6;
+      background: #ffffff;  /* kein grauer Rand mehr */
     }}
     .page {{
       min-height: 100vh;
@@ -290,7 +299,7 @@ def einkaufs_formular():
       box-shadow: none;
     }}
     h1 {{
-      font-size: 24px;
+      font-size: 1.4rem;
       margin-top: 0;
       margin-bottom: 16px;
       text-align: center;
@@ -298,11 +307,11 @@ def einkaufs_formular():
     label {{
       display: block;
       margin-top: 14px;
-      font-size: 16px;
+      font-size: 0.95rem;
     }}
     input, select, textarea {{
       width: 100%;
-      font-size: 20px;
+      font-size: 1.2rem;
       padding: 14px 12px;
       margin-top: 6px;
       box-sizing: border-box;
@@ -316,7 +325,7 @@ def einkaufs_formular():
     button {{
       margin-top: 22px;
       width: 100%;
-      font-size: 20px;
+      font-size: 1.2rem;
       padding: 14px;
       border-radius: 9999px;
       border: none;
@@ -329,12 +338,12 @@ def einkaufs_formular():
     }}
     #msg {{
       margin-top: 10px;
-      font-size: 14px;
+      font-size: 0.9rem;
       text-align: center;
     }}
     .footer-row {{
       margin-top: 14px;
-      font-size: 14px;
+      font-size: 0.9rem;
       display: flex;
       justify-content: flex-end;
       color: #374151;
@@ -344,6 +353,7 @@ def einkaufs_formular():
       margin-left: 6px;
     }}
   </style>
+
 </head>
 <body>
   <div class="page">
