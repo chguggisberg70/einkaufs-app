@@ -203,10 +203,8 @@ def add_transaction(tx: Transaction):
     return {"status": "ok"}
 
 
-from datetime import date
-from fastapi.responses import HTMLResponse
 
-@from datetime import date
+from datetime import date
 from fastapi.responses import HTMLResponse
 
 @app.get("/formular", response_class=HTMLResponse)
