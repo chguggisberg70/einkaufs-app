@@ -66,7 +66,6 @@ def query_database(database_id: str, payload: Optional[dict] = None) -> dict:
         return resp.json()
     except requests.RequestException as e:
         print(f"Fehler beim Lesen von DB {database_id}: {e}")
-        # Für Optionen & Summe geben wir im Fehlerfall einfach leere Werte zurück
         return {"results": []}
 
 
@@ -103,14 +102,16 @@ def find_page_id_by_name(database_id: str, name: str) -> Optional[str]:
 
 def get_lebensmittel_sum_for_month(monat_name: str) -> float:
     """
-    Summe aller Beträge mit Kategorie_Text 'Lebensmittel'
+    Summe aller Beträge für Kategorie 'Lebensmittel'
     und Relation 'Monat' = ausgewählter Monat.
+    Es wird über die Relationen 'Monat' und 'Kategorien' gefiltert.
     """
-    if not monat_name or not DB_MONAT_ID or not DB_TRANSAKT_ID:
+    if not monat_name or not DB_MONAT_ID or not DB_TRANSAKT_ID or not DB_KATEG_ID:
         return 0.0
 
     month_id = find_page_id_by_name(DB_MONAT_ID, monat_name)
-    if not month_id:
+    cat_id = find_page_id_by_name(DB_KATEG_ID, "Lebensmittel")
+    if not month_id or not cat_id:
         return 0.0
 
     payload = {
@@ -121,22 +122,15 @@ def get_lebensmittel_sum_for_month(monat_name: str) -> float:
                     "relation": {"contains": month_id},
                 },
                 {
-                    "property": "Kategorie_Text",
-                    "rich_text": {"equals": "Lebensmittel"},
+                    "property": "Kategorien",
+                    "relation": {"contains": cat_id},
                 },
             ]
         }
     }
 
-    url = f"{NOTION_API_BASE}/databases/{DB_TRANSAKT_ID}/query"
-    try:
-        resp = requests.post(url, headers=http_headers, json=payload)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        print(f"Fehler beim Lesen von Transaktionen: {e}")
-        return 0.0
+    data = query_database(DB_TRANSAKT_ID, payload)
 
-    data = resp.json()
     total = 0.0
     for page in data.get("results", []):
         betrag = (
@@ -183,7 +177,6 @@ def lebensmittel_sum(monat: str):
 @app.post("/add")
 def add_transaction(tx: Transaction):
     """Neue Transaktion in Notion anlegen."""
-    # passende Kategorie- und Monats-Seite finden (für Relation)
     cat_id = find_page_id_by_name(DB_KATEG_ID, tx.kategorie) if DB_KATEG_ID else None
     month_id = find_page_id_by_name(DB_MONAT_ID, tx.monat) if DB_MONAT_ID else None
 
@@ -283,17 +276,18 @@ def einkaufs_formular():
     }}
     .page {{
       min-height: 100vh;
-      padding: 8px;
+      padding: 0;
+      margin: 0;
       box-sizing: border-box;
     }}
     .container {{
-      max-width: 640px;
       width: 100%;
-      margin: 0 auto;
+      max-width: 100%;
+      margin: 0;
       background: #ffffff;
       padding: 20px 16px 16px 16px;
-      border-radius: 18px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+      border-radius: 0;
+      box-shadow: none;
     }}
     h1 {{
       font-size: 24px;
@@ -348,21 +342,6 @@ def einkaufs_formular():
     .footer-row span.sum {{
       font-weight: 600;
       margin-left: 6px;
-    }}
-
-    @media (max-width: 768px) {{
-      .page {{
-        padding: 4px;
-      }}
-      .container {{
-        max-width: 100%;
-        border-radius: 0;
-        box-shadow: none;
-      }}
-      input, select, textarea, button {{
-        font-size: 22px;
-        padding: 16px 14px;
-      }}
     }}
   </style>
 </head>
@@ -460,7 +439,6 @@ def einkaufs_formular():
         document.getElementById("notiz").value = "";
         document.getElementById("name").focus();
 
-        // Summe aktualisieren
         updateTotal();
       }} catch (err) {{
         console.error(err);
@@ -468,7 +446,6 @@ def einkaufs_formular():
       }}
     }});
 
-    // Beim Laden einmal die Summe aktualisieren (falls Monat geändert wurde)
     updateTotal();
   </script>
 </body>
