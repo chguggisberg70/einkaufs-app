@@ -1,0 +1,5 @@
+fastapi
+uvicorn[standard]
+notion-client
+python-dotenv
+requests
