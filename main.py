@@ -264,25 +264,15 @@ def einkaufs_formular():
   <meta charset="utf-8">
   <title>Einkauf erfassen</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-    /* Basis-Schriftgrösse Desktop / Tablet */
-    :root {{
-      font-size: 20px;
-    }}
-
-    /* Auf kleinen Displays (Handy): Schrift noch grösser */
-    @media (max-width: 600px) {{
-      :root {{
-        font-size: 24px;
-      }}
-    }}
-
+        <style>
+    /* Basis (Desktop / grösser) */
     body {{
       font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 0;
       padding: 0;
       background: #ffffff;
       -webkit-text-size-adjust: 100%;
+      font-size: 18px;
     }}
 
     .page {{
@@ -303,7 +293,7 @@ def einkaufs_formular():
     }}
 
     h1 {{
-      font-size: 1.5rem;  /* deutlich grösser */
+      font-size: 22px;
       margin-top: 0;
       margin-bottom: 16px;
       text-align: center;
@@ -311,15 +301,15 @@ def einkaufs_formular():
 
     label {{
       display: block;
-      margin-top: 16px;
-      font-size: 1.1rem;
+      margin-top: 14px;
+      font-size: 16px;
     }}
 
     input, select, textarea {{
       width: 100%;
-      font-size: 1.4rem;    /* Eingabe-Felder schön gross */
-      padding: 16px 14px;
-      margin-top: 8px;
+      font-size: 18px;
+      padding: 14px 12px;
+      margin-top: 6px;
       box-sizing: border-box;
       border-radius: 12px;
       border: 1px solid #d1d5db;
@@ -327,14 +317,14 @@ def einkaufs_formular():
 
     textarea {{
       resize: vertical;
-      min-height: 80px;
+      min-height: 70px;
     }}
 
     button {{
-      margin-top: 24px;
+      margin-top: 22px;
       width: 100%;
-      font-size: 1.4rem;    /* grosser Button-Text */
-      padding: 16px;
+      font-size: 18px;
+      padding: 14px;
       border-radius: 9999px;
       border: none;
       background: #2563eb;
@@ -347,14 +337,14 @@ def einkaufs_formular():
     }}
 
     #msg {{
-      margin-top: 12px;
-      font-size: 1rem;
+      margin-top: 10px;
+      font-size: 14px;
       text-align: center;
     }}
 
     .footer-row {{
-      margin-top: 16px;
-      font-size: 1rem;
+      margin-top: 14px;
+      font-size: 14px;
       display: flex;
       justify-content: flex-end;
       color: #374151;
@@ -364,7 +354,32 @@ def einkaufs_formular():
       font-weight: 600;
       margin-left: 6px;
     }}
+
+    /* >>> Handy-Ansicht: alles deutlich grösser <<< */
+    @media (max-width: 600px) {{
+      html, body {{
+        font-size: 22px;    /* Grundschrift auf dem Handy */
+      }}
+
+      h1 {{
+        font-size: 26px;
+      }}
+
+      label {{
+        font-size: 20px;
+      }}
+
+      input, select, textarea, button {{
+        font-size: 22px;    /* Eingabe + Button richtig gross */
+        padding: 16px 14px;
+      }}
+
+      #msg, .footer-row {{
+        font-size: 18px;
+      }}
+    }}
   </style>
+
 
 
 </head>
