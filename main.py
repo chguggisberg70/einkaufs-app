@@ -14,15 +14,16 @@ from pydantic import BaseModel
 
 load_dotenv()
 
+# HIER NIMMT ER DIE SCHLÜSSEL AUS DEINEN EINSTELLUNGEN
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DB_TRANSAKT_ID = os.getenv("NOTION_TRANSAKT_DB_ID")
 DB_KATEG_ID = os.getenv("NOTION_KATEG_DB_ID")
 DB_MONAT_ID = os.getenv("NOTION_MONAT_DB_ID")
 
 if not NOTION_API_KEY or not DB_TRANSAKT_ID:
-    raise RuntimeError(
-        "Bitte NOTION_API_KEY und NOTION_TRANSAKT_DB_ID als Environment-Variablen setzen."
-    )
+    # Fallback, falls lokal keine .env da ist, aber normalerweise
+    # kommen die Werte jetzt von Render.
+    print("Warnung: API Key nicht gefunden. Stelle sicher, dass er in Render gesetzt ist.")
 
 NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
@@ -71,6 +72,8 @@ def query_database(database_id: str, payload: Optional[dict] = None) -> dict:
 
 def get_names_from_db(database_id: str) -> List[str]:
     """Liest alle Seitennamen (Eigenschaft 'Name') aus einer Datenbank."""
+    if not database_id:
+        return []
     data = query_database(database_id)
     names: List[str] = []
     for page in data.get("results", []):
@@ -83,7 +86,7 @@ def get_names_from_db(database_id: str) -> List[str]:
 
 def find_page_id_by_name(database_id: str, name: str) -> Optional[str]:
     """Sucht eine Seite per exaktem Name und gibt die ID zurück."""
-    if not name:
+    if not name or not database_id:
         return None
 
     payload = {
@@ -104,7 +107,6 @@ def get_lebensmittel_sum_for_month(monat_name: str) -> float:
     """
     Summe aller Beträge für Kategorie 'Lebensmittel'
     und Relation 'Monat' = ausgewählter Monat.
-    Es wird über die Relationen 'Monat' und 'Kategorien' gefiltert.
     """
     if not monat_name or not DB_MONAT_ID or not DB_TRANSAKT_ID or not DB_KATEG_ID:
         return 0.0
@@ -226,7 +228,7 @@ def add_transaction(tx: Transaction):
 
 
 # -----------------------------------------------------------
-# HTML-Formular (Handy-optimiert)
+# HTML-Formular (Handy-optimiert + Automatische Monatswahl)
 # -----------------------------------------------------------
 
 
@@ -235,27 +237,22 @@ def einkaufs_formular():
     options = load_options()
 
     today_str = date.today().isoformat()
-    default_monat = options.monate[0] if options.monate else ""
+    # Standard-Kategorie
     default_kat = (
         "Lebensmittel"
         if "Lebensmittel" in options.kategorien
         else (options.kategorien[0] if options.kategorien else "")
     )
-
-    initial_total = (
-        get_lebensmittel_sum_for_month(default_monat) if default_monat else 0.0
+    
+    # Monat wird jetzt vom Script gesetzt, wir laden trotzdem alle für das Select
+    monat_options_html = "".join(
+        f'<option value="{m}">{m}</option>'
+        for m in options.monate
     )
-    initial_total_text = f"{initial_total:0.2f} CHF"
 
-    # Dropdown-HTML bauen
     kategorie_options_html = "".join(
         f'<option value="{k}"{" selected" if k == default_kat else ""}>{k}</option>'
         for k in options.kategorien
-    )
-
-    monat_options_html = "".join(
-        f'<option value="{m}"{" selected" if m == default_monat else ""}>{m}</option>'
-        for m in options.monate
     )
 
     html = f"""<!DOCTYPE html>
@@ -264,16 +261,14 @@ def einkaufs_formular():
   <meta charset="utf-8">
   <title>Einkauf erfassen</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-          <style>
-    /* Feste, grosse Schrift – überall gleich (auch Desktop) */
-
+  <style>
     body {{
       font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 0;
       padding: 0;
       background: #ffffff;
       -webkit-text-size-adjust: 100%;
-      font-size: 22px;  /* Grundschrift */
+      font-size: 22px; 
     }}
 
     .page {{
@@ -285,16 +280,12 @@ def einkaufs_formular():
 
     .container {{
       width: 100%;
-      max-width: 100%;
-      margin: 0;
-      background: #ffffff;
       padding: 20px 16px 16px 16px;
-      border-radius: 0;
-      box-shadow: none;
+      box-sizing: border-box;
     }}
 
     h1 {{
-      font-size: 26px;  /* Titel gross */
+      font-size: 26px;
       margin-top: 0;
       margin-bottom: 16px;
       text-align: center;
@@ -303,12 +294,17 @@ def einkaufs_formular():
     label {{
       display: block;
       margin-top: 16px;
-      font-size: 20px;  /* Feldbezeichnungen */
+      font-size: 20px;
+    }}
+
+    /* Wir verstecken den Monat-Container visuell */
+    .hidden-field {{
+        display: none;
     }}
 
     input, select, textarea {{
       width: 100%;
-      font-size: 24px;   /* Eingabefelder richtig gross */
+      font-size: 24px;
       padding: 18px 16px;
       margin-top: 8px;
       box-sizing: border-box;
@@ -324,7 +320,7 @@ def einkaufs_formular():
     button {{
       margin-top: 24px;
       width: 100%;
-      font-size: 24px;   /* Grosser Button-Text */
+      font-size: 24px;
       padding: 18px;
       border-radius: 9999px;
       border: none;
@@ -356,10 +352,6 @@ def einkaufs_formular():
       margin-left: 6px;
     }}
   </style>
-
-
-
-
 </head>
 <body>
   <div class="page">
@@ -380,10 +372,12 @@ def einkaufs_formular():
           {kategorie_options_html}
         </select>
 
-        <label for="monat">Monat</label>
-        <select id="monat" name="monat" required>
-          {monat_options_html}
-        </select>
+        <div class="hidden-field">
+            <label for="monat">Monat</label>
+            <select id="monat" name="monat" required>
+            {monat_options_html}
+            </select>
+        </div>
 
         <label for="notiz">Notiz</label>
         <textarea id="notiz" name="notiz" rows="2"></textarea>
@@ -392,8 +386,8 @@ def einkaufs_formular():
         <p id="msg"></p>
 
         <div class="footer-row">
-          <span>Lebensmittel total <span id="monatLabel">{default_monat}</span>:</span>
-          <span class="sum" id="lebTotal">{initial_total_text}</span>
+          <span>Lebensmittel total <span id="monatLabel">...</span>:</span>
+          <span class="sum" id="lebTotal">...</span>
         </div>
       </form>
     </div>
@@ -403,8 +397,47 @@ def einkaufs_formular():
     const form = document.getElementById("txForm");
     const msg = document.getElementById("msg");
     const monatSelect = document.getElementById("monat");
+    const dateInput = document.getElementById("datum");
     const lebTotalSpan = document.getElementById("lebTotal");
     const monatLabel = document.getElementById("monatLabel");
+
+    // Deutsche Monatsnamen für die Berechnung
+    const monthNames = [
+        "Januar", "Februar", "März", "April", "Mai", "Juni",
+        "Juli", "August", "September", "Oktober", "November", "Dezember"
+    ];
+
+    // Diese Funktion berechnet den Monatstring (z.B. "Januar 26") anhand des Datums
+    function autoSelectMonth() {{
+        const dateVal = dateInput.value; 
+        if(!dateVal) return;
+
+        const d = new Date(dateVal);
+        const monthIndex = d.getMonth(); // 0 = Januar
+        const fullYear = d.getFullYear(); // 2026
+        const shortYear = String(fullYear).slice(-2); // "26"
+
+        // Wir bauen den String genau so, wie er in Notion heisst: "Januar 26"
+        const targetString = monthNames[monthIndex] + " " + shortYear;
+        
+        // Wir suchen diesen String in der versteckten Dropdown-Liste
+        let found = false;
+        for (let i = 0; i < monatSelect.options.length; i++) {{
+            if (monatSelect.options[i].text === targetString) {{
+                monatSelect.selectedIndex = i;
+                found = true;
+                break;
+            }}
+        }}
+
+        if(found) {{
+            // Wenn gefunden, aktualisieren wir sofort die Summen-Anzeige
+            updateTotal();
+        }} else {{
+            monatLabel.textContent = targetString + " (?)";
+            lebTotalSpan.textContent = "Nicht in DB";
+        }}
+    }}
 
     async function updateTotal() {{
       const monat = monatSelect.value;
@@ -421,7 +454,13 @@ def einkaufs_formular():
       }}
     }}
 
-    monatSelect.addEventListener("change", updateTotal);
+    // Wenn man das Datum ändert, soll sich der Monat automatisch anpassen
+    dateInput.addEventListener("change", autoSelectMonth);
+
+    // Beim Laden der Seite einmal ausführen
+    document.addEventListener("DOMContentLoaded", () => {{
+        autoSelectMonth();
+    }});
 
     form.addEventListener("submit", async (e) => {{
       e.preventDefault();
@@ -435,7 +474,7 @@ def einkaufs_formular():
         betrag: parseFloat(betragNorm),
         datum: document.getElementById("datum").value,
         kategorie: document.getElementById("kategorie").value,
-        monat: monatSelect.value,
+        monat: monatSelect.value, // Hier wird der automatisch gewählte Wert genommen
         notiz: document.getElementById("notiz").value || null,
       }};
 
@@ -454,15 +493,14 @@ def einkaufs_formular():
         document.getElementById("betrag").value = "";
         document.getElementById("notiz").value = "";
         document.getElementById("name").focus();
-
+        
+        // Summe neu laden
         updateTotal();
       }} catch (err) {{
         console.error(err);
         msg.textContent = "Fehler beim Speichern ❌";
       }}
     }});
-
-    updateTotal();
   </script>
 </body>
 </html>
