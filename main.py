@@ -21,8 +21,6 @@ DB_KATEG_ID = os.getenv("NOTION_KATEG_DB_ID")
 DB_MONAT_ID = os.getenv("NOTION_MONAT_DB_ID")
 
 if not NOTION_API_KEY or not DB_TRANSAKT_ID:
-    # Fallback, falls lokal keine .env da ist, aber normalerweise
-    # kommen die Werte jetzt von Render.
     print("Warnung: API Key nicht gefunden. Stelle sicher, dass er in Render gesetzt ist.")
 
 NOTION_API_BASE = "https://api.notion.com/v1"
@@ -38,28 +36,23 @@ http_headers = {
 # Datenmodelle
 # -----------------------------------------------------------
 
-
 class Transaction(BaseModel):
     name: str
     betrag: float
-    datum: str  # ISO-String YYYY-MM-DD
+    datum: str
     kategorie: str
     monat: str
     notiz: Optional[str] = None
-
 
 class OptionsResponse(BaseModel):
     kategorien: List[str]
     monate: List[str]
 
-
 # -----------------------------------------------------------
 # Hilfsfunktionen für Notion
 # -----------------------------------------------------------
 
-
 def query_database(database_id: str, payload: Optional[dict] = None) -> dict:
-    """POST /databases/{id}/query mit einfachem Fehler-Handling."""
     url = f"{NOTION_API_BASE}/databases/{database_id}/query"
     try:
         resp = requests.post(url, headers=http_headers, json=payload or {})
@@ -69,9 +62,7 @@ def query_database(database_id: str, payload: Optional[dict] = None) -> dict:
         print(f"Fehler beim Lesen von DB {database_id}: {e}")
         return {"results": []}
 
-
 def get_names_from_db(database_id: str) -> List[str]:
-    """Liest alle Seitennamen (Eigenschaft 'Name') aus einer Datenbank."""
     if not database_id:
         return []
     data = query_database(database_id)
@@ -83,12 +74,9 @@ def get_names_from_db(database_id: str) -> List[str]:
             names.append(title[0]["plain_text"])
     return names
 
-
 def find_page_id_by_name(database_id: str, name: str) -> Optional[str]:
-    """Sucht eine Seite per exaktem Name und gibt die ID zurück."""
     if not name or not database_id:
         return None
-
     payload = {
         "filter": {
             "property": "Name",
@@ -102,12 +90,7 @@ def find_page_id_by_name(database_id: str, name: str) -> Optional[str]:
         return None
     return results[0]["id"]
 
-
 def get_lebensmittel_sum_for_month(monat_name: str) -> float:
-    """
-    Summe aller Beträge für Kategorie 'Lebensmittel'
-    und Relation 'Monat' = ausgewählter Monat.
-    """
     if not monat_name or not DB_MONAT_ID or not DB_TRANSAKT_ID or not DB_KATEG_ID:
         return 0.0
 
@@ -119,39 +102,23 @@ def get_lebensmittel_sum_for_month(monat_name: str) -> float:
     payload = {
         "filter": {
             "and": [
-                {
-                    "property": "Monat",
-                    "relation": {"contains": month_id},
-                },
-                {
-                    "property": "Kategorien",
-                    "relation": {"contains": cat_id},
-                },
+                { "property": "Monat", "relation": {"contains": month_id} },
+                { "property": "Kategorien", "relation": {"contains": cat_id} },
             ]
         }
     }
-
     data = query_database(DB_TRANSAKT_ID, payload)
-
     total = 0.0
     for page in data.get("results", []):
-        betrag = (
-            page.get("properties", {})
-            .get("Betrag", {})
-            .get("number")
-        )
+        betrag = page.get("properties", {}).get("Betrag", {}).get("number")
         if isinstance(betrag, (int, float)):
             total += betrag
-
     return total
 
-
 def load_options() -> OptionsResponse:
-    """Lädt Kategorien- und Monatsnamen aus Notion."""
     kategorien = get_names_from_db(DB_KATEG_ID) if DB_KATEG_ID else []
     monate = get_names_from_db(DB_MONAT_ID) if DB_MONAT_ID else []
     return OptionsResponse(kategorien=kategorien, monate=monate)
-
 
 # -----------------------------------------------------------
 # FastAPI-App + Routen
@@ -159,54 +126,35 @@ def load_options() -> OptionsResponse:
 
 app = FastAPI(title="Einkaufs-App")
 
-
 @app.get("/")
 def read_root():
     return {"message": "Einkaufs-App-API läuft ✅"}
 
-
 @app.get("/options", response_model=OptionsResponse)
 def get_options():
     return load_options()
-
 
 @app.get("/lebensmittel_sum")
 def lebensmittel_sum(monat: str):
     total = get_lebensmittel_sum_for_month(monat)
     return {"monat": monat, "sum": round(total, 2)}
 
-
 @app.post("/add")
 def add_transaction(tx: Transaction):
-    """Neue Transaktion in Notion anlegen."""
     cat_id = find_page_id_by_name(DB_KATEG_ID, tx.kategorie) if DB_KATEG_ID else None
     month_id = find_page_id_by_name(DB_MONAT_ID, tx.monat) if DB_MONAT_ID else None
 
     properties: dict = {
-        "Name": {
-            "title": [
-                {"text": {"content": tx.name}}
-            ]
-        },
+        "Name": { "title": [{"text": {"content": tx.name}}] },
         "Betrag": {"number": tx.betrag},
         "Datum": {"date": {"start": tx.datum}},
-        "Kategorie_Text": {
-            "rich_text": [{"text": {"content": tx.kategorie}}]
-        },
-        "Notiz": {
-            "rich_text": [{"text": {"content": tx.notiz}}] if tx.notiz else []
-        },
+        "Kategorie_Text": { "rich_text": [{"text": {"content": tx.kategorie}}] },
+        "Notiz": { "rich_text": [{"text": {"content": tx.notiz}}] if tx.notiz else [] },
     }
-
     if cat_id:
-        properties["Kategorien"] = {
-            "relation": [{"id": cat_id}]
-        }
-
+        properties["Kategorien"] = { "relation": [{"id": cat_id}] }
     if month_id:
-        properties["Monat"] = {
-            "relation": [{"id": month_id}]
-        }
+        properties["Monat"] = { "relation": [{"id": month_id}] }
 
     payload = {
         "parent": {"database_id": DB_TRANSAKT_ID},
@@ -226,30 +174,21 @@ def add_transaction(tx: Transaction):
 
     return {"status": "ok"}
 
-
 # -----------------------------------------------------------
-# HTML-Formular (Handy-optimiert + Automatische Monatswahl)
+# HTML-Formular (Optimiert für Vivo/Oppo + Auto-Monat)
 # -----------------------------------------------------------
-
 
 @app.get("/formular", response_class=HTMLResponse)
 def einkaufs_formular():
     options = load_options()
-
     today_str = date.today().isoformat()
-    # Standard-Kategorie
+    
     default_kat = (
-        "Lebensmittel"
-        if "Lebensmittel" in options.kategorien
+        "Lebensmittel" if "Lebensmittel" in options.kategorien
         else (options.kategorien[0] if options.kategorien else "")
     )
     
-    # Monat wird jetzt vom Script gesetzt, wir laden trotzdem alle für das Select
-    monat_options_html = "".join(
-        f'<option value="{m}">{m}</option>'
-        for m in options.monate
-    )
-
+    monat_options_html = "".join(f'<option value="{m}">{m}</option>' for m in options.monate)
     kategorie_options_html = "".join(
         f'<option value="{k}"{" selected" if k == default_kat else ""}>{k}</option>'
         for k in options.kategorien
@@ -260,137 +199,150 @@ def einkaufs_formular():
 <head>
   <meta charset="utf-8">
   <title>Einkauf erfassen</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  
   <style>
-    body {{
-      font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      margin: 0;
-      padding: 0;
-      background: #ffffff;
-      -webkit-text-size-adjust: 100%;
-      font-size: 22px; 
+    /* Grundeinstellungen */
+    :root {{
+      --primary-color: #2563eb;
+      --bg-color: #f3f4f6;
+      --card-bg: #ffffff;
+      --text-color: #1f2937;
     }}
 
-    .page {{
-      min-height: 100vh;
-      padding: 0;
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
       margin: 0;
-      box-sizing: border-box;
+      padding: 20px;
+      /* "rem" passt sich der Handy-Einstellung an. 1.1rem ist gut lesbar. */
+      font-size: 1.1rem; 
+      line-height: 1.5;
     }}
 
     .container {{
-      width: 100%;
-      padding: 20px 16px 16px 16px;
-      box-sizing: border-box;
+      max-width: 600px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      padding: 24px;
+      border-radius: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }}
 
     h1 {{
-      font-size: 26px;
-      margin-top: 0;
-      margin-bottom: 16px;
       text-align: center;
+      margin-top: 0;
+      font-size: 1.5rem;
+      color: var(--primary-color);
     }}
 
     label {{
       display: block;
       margin-top: 16px;
-      font-size: 20px;
+      margin-bottom: 6px;
+      font-weight: 600;
+      font-size: 1rem;
     }}
 
-    /* Wir verstecken den Monat-Container visuell */
+    /* Eingabefelder: Flexibel und gross genug */
+    input, select, textarea {{
+      width: 100%;
+      padding: 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #fff;
+      font-size: 1.1rem; /* Passt sich an */
+      box-sizing: border-box; /* Verhindert, dass es breiter als der Screen wird */
+      -webkit-appearance: none; /* Macht native Styles weg (hilft bei iPhone/Oppo) */
+    }}
+
+    /* Verstecktes Feld für den Monat */
     .hidden-field {{
         display: none;
     }}
 
-    input, select, textarea {{
-      width: 100%;
-      font-size: 24px;
-      padding: 18px 16px;
-      margin-top: 8px;
-      box-sizing: border-box;
-      border-radius: 12px;
-      border: 1px solid #d1d5db;
-    }}
-
-    textarea {{
-      resize: vertical;
-      min-height: 80px;
-    }}
-
     button {{
-      margin-top: 24px;
       width: 100%;
-      font-size: 24px;
-      padding: 18px;
-      border-radius: 9999px;
-      border: none;
-      background: #2563eb;
+      margin-top: 24px;
+      padding: 16px;
+      background-color: var(--primary-color);
       color: white;
-      font-weight: 600;
+      font-size: 1.2rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }}
 
     button:active {{
       transform: scale(0.98);
+      background-color: #1d4ed8;
     }}
 
     #msg {{
-      margin-top: 12px;
-      font-size: 18px;
       text-align: center;
+      font-weight: bold;
+      margin-top: 16px;
+      min-height: 1.5em;
     }}
 
     .footer-row {{
-      margin-top: 16px;
-      font-size: 18px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #e5e7eb;
       display: flex;
-      justify-content: flex-end;
-      color: #374151;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 1rem;
     }}
 
-    .footer-row span.sum {{
-      font-weight: 600;
-      margin-left: 6px;
+    .sum {{
+      font-weight: bold;
+      color: var(--primary-color);
+      font-size: 1.2rem;
     }}
   </style>
 </head>
 <body>
-  <div class="page">
-    <div class="container">
-      <h1>Einkauf erfassen</h1>
-      <form id="txForm">
-        <label for="name">Name</label>
-        <input id="name" name="name" type="text" required>
 
-        <label for="betrag">Betrag</label>
-        <input id="betrag" name="betrag" type="number" step="0.01" inputmode="decimal" required>
+  <div class="container">
+    <h1>Einkauf erfassen</h1>
+    <form id="txForm">
+      
+      <label for="name">Was?</label>
+      <input id="name" name="name" type="text" placeholder="z.B. Migros" required>
 
-        <label for="datum">Datum</label>
-        <input id="datum" name="datum" type="date" value="{today_str}" required>
+      <label for="betrag">Betrag (CHF)</label>
+      <input id="betrag" name="betrag" type="number" step="0.01" inputmode="decimal" placeholder="0.00" required>
 
-        <label for="kategorie">Kategorie</label>
-        <select id="kategorie" name="kategorie" required>
-          {kategorie_options_html}
-        </select>
+      <label for="datum">Datum</label>
+      <input id="datum" name="datum" type="date" value="{today_str}" required>
 
-        <div class="hidden-field">
-            <label for="monat">Monat</label>
-            <select id="monat" name="monat" required>
-            {monat_options_html}
-            </select>
-        </div>
+      <label for="kategorie">Kategorie</label>
+      <select id="kategorie" name="kategorie" required>
+        {kategorie_options_html}
+      </select>
 
-        <label for="notiz">Notiz</label>
-        <textarea id="notiz" name="notiz" rows="2"></textarea>
+      <div class="hidden-field">
+          <select id="monat" name="monat">
+          {monat_options_html}
+          </select>
+      </div>
 
-        <button type="submit">Speichern</button>
-        <p id="msg"></p>
+      <label for="notiz">Notiz (Optional)</label>
+      <textarea id="notiz" name="notiz" rows="2" placeholder="Details..."></textarea>
 
-        <div class="footer-row">
-          <span>Lebensmittel total <span id="monatLabel">...</span>:</span>
-          <span class="sum" id="lebTotal">...</span>
-        </div>
-      </form>
-    </div>
+      <button type="submit">Speichern</button>
+      <p id="msg"></p>
+
+      <div class="footer-row">
+        <span>Total Lebensmittel <br><small id="monatLabel">...</small>:</span>
+        <span class="sum" id="lebTotal">...</span>
+      </div>
+    </form>
   </div>
 
   <script>
@@ -401,26 +353,22 @@ def einkaufs_formular():
     const lebTotalSpan = document.getElementById("lebTotal");
     const monatLabel = document.getElementById("monatLabel");
 
-    // Deutsche Monatsnamen für die Berechnung
     const monthNames = [
         "Januar", "Februar", "März", "April", "Mai", "Juni",
         "Juli", "August", "September", "Oktober", "November", "Dezember"
     ];
 
-    // Diese Funktion berechnet den Monatstring (z.B. "Januar 26") anhand des Datums
     function autoSelectMonth() {{
         const dateVal = dateInput.value; 
         if(!dateVal) return;
 
         const d = new Date(dateVal);
-        const monthIndex = d.getMonth(); // 0 = Januar
-        const fullYear = d.getFullYear(); // 2026
-        const shortYear = String(fullYear).slice(-2); // "26"
+        const monthIndex = d.getMonth(); 
+        const fullYear = d.getFullYear(); 
+        const shortYear = String(fullYear).slice(-2); 
 
-        // Wir bauen den String genau so, wie er in Notion heisst: "Januar 26"
         const targetString = monthNames[monthIndex] + " " + shortYear;
         
-        // Wir suchen diesen String in der versteckten Dropdown-Liste
         let found = false;
         for (let i = 0; i < monatSelect.options.length; i++) {{
             if (monatSelect.options[i].text === targetString) {{
@@ -431,33 +379,30 @@ def einkaufs_formular():
         }}
 
         if(found) {{
-            // Wenn gefunden, aktualisieren wir sofort die Summen-Anzeige
             updateTotal();
         }} else {{
             monatLabel.textContent = targetString + " (?)";
-            lebTotalSpan.textContent = "Nicht in DB";
+            lebTotalSpan.textContent = "—";
         }}
     }}
 
     async function updateTotal() {{
       const monat = monatSelect.value;
-      monatLabel.textContent = monat;
+      monatLabel.textContent = "(" + monat + ")";
       try {{
         const res = await fetch("/lebensmittel_sum?monat=" + encodeURIComponent(monat));
-        if (!res.ok) throw new Error("Fehler beim Laden der Summe");
+        if (!res.ok) throw new Error("Fehler");
         const data = await res.json();
         const sum = typeof data.sum === "number" ? data.sum : 0;
-        lebTotalSpan.textContent = sum.toFixed(2) + " CHF";
+        lebTotalSpan.textContent = sum.toFixed(2);
       }} catch (err) {{
         console.error(err);
         lebTotalSpan.textContent = "—";
       }}
     }}
 
-    // Wenn man das Datum ändert, soll sich der Monat automatisch anpassen
     dateInput.addEventListener("change", autoSelectMonth);
 
-    // Beim Laden der Seite einmal ausführen
     document.addEventListener("DOMContentLoaded", () => {{
         autoSelectMonth();
     }});
@@ -465,6 +410,7 @@ def einkaufs_formular():
     form.addEventListener("submit", async (e) => {{
       e.preventDefault();
       msg.textContent = "Speichere...";
+      msg.style.color = "black";
 
       const betragRaw = document.getElementById("betrag").value.trim();
       const betragNorm = betragRaw.replace(",", ".");
@@ -474,7 +420,7 @@ def einkaufs_formular():
         betrag: parseFloat(betragNorm),
         datum: document.getElementById("datum").value,
         kategorie: document.getElementById("kategorie").value,
-        monat: monatSelect.value, // Hier wird der automatisch gewählte Wert genommen
+        monat: monatSelect.value,
         notiz: document.getElementById("notiz").value || null,
       }};
 
@@ -485,20 +431,21 @@ def einkaufs_formular():
           body: JSON.stringify(data),
         }});
 
-        if (!res.ok) throw new Error("Fehler beim Speichern");
+        if (!res.ok) throw new Error("Fehler");
 
         msg.textContent = "Gespeichert ✅";
+        msg.style.color = "green";
 
         document.getElementById("name").value = "";
         document.getElementById("betrag").value = "";
         document.getElementById("notiz").value = "";
         document.getElementById("name").focus();
         
-        // Summe neu laden
         updateTotal();
       }} catch (err) {{
         console.error(err);
         msg.textContent = "Fehler beim Speichern ❌";
+        msg.style.color = "red";
       }}
     }});
   </script>
