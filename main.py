@@ -14,7 +14,6 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-# HIER NIMMT ER DIE SCHLÜSSEL AUS DEINEN EINSTELLUNGEN
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DB_TRANSAKT_ID = os.getenv("NOTION_TRANSAKT_DB_ID")
 DB_KATEG_ID = os.getenv("NOTION_KATEG_DB_ID")
@@ -175,7 +174,7 @@ def add_transaction(tx: Transaction):
     return {"status": "ok"}
 
 # -----------------------------------------------------------
-# HTML-Formular (Optimiert für Vivo/Oppo + Auto-Monat)
+# HTML-Formular
 # -----------------------------------------------------------
 
 @app.get("/formular", response_class=HTMLResponse)
@@ -183,27 +182,48 @@ def einkaufs_formular():
     options = load_options()
     today_str = date.today().isoformat()
     
-    default_kat = (
-        "Lebensmittel" if "Lebensmittel" in options.kategorien
-        else (options.kategorien[0] if options.kategorien else "")
-    )
-    
+    # 1. Deine Gruppen-Logik definieren
+    gruppen_mapping = {
+        "Haushalt & Alltag": ["Lebensmittel", "Shopping", "Restaurant"],
+        "Fixkosten & Wohnen": ["Wohnen Nebenkosten", "Serafe", "Steuern Bund"],
+        "Versicherungen": ["Versicherungen Mobi Haus", "Versicherung GS"],
+        "Freizeit & Reisen": ["Reisen", "Freizeit"]
+    }
+
+    # 2. HTML für das Dropdown bauen
+    kategorie_options_html = ""
+    verarbeitete_kats = set()
+
+    # Zuerst die definierten Gruppen abarbeiten
+    for gruppe, kats in gruppen_mapping.items():
+        # Nur Gruppe anzeigen, wenn mindestens eine Kategorie daraus existiert
+        vorhandene_in_gruppe = [k for k in kats if k in options.kategorien]
+        if vorhandene_in_gruppe:
+            kategorie_options_html += f'<optgroup label="--- {gruppe} ---">'
+            for kat in vorhandene_in_gruppe:
+                # "Lebensmittel" als Standard vorauswählen, falls gewünscht
+                selected = ' selected' if kat == "Lebensmittel" else ""
+                kategorie_options_html += f'<option value="{kat}"{selected}>{kat}</option>'
+                verarbeitete_kats.add(kat)
+            kategorie_options_html += '</optgroup>'
+
+    # Den Rest unter "Diverses" alphabetisch sortiert anhängen
+    restliche = sorted([k for k in options.kategorien if k not in verarbeitete_kats])
+    if restliche:
+        kategorie_options_html += '<optgroup label="--- Diverses ---">'
+        for kat in restliche:
+            kategorie_options_html += f'<option value="{kat}">{kat}</option>'
+        kategorie_options_html += '</optgroup>'
+
     monat_options_html = "".join(f'<option value="{m}">{m}</option>' for m in options.monate)
-    kategorie_options_html = "".join(
-        f'<option value="{k}"{" selected" if k == default_kat else ""}>{k}</option>'
-        for k in options.kategorien
-    )
 
     html = f"""<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="utf-8">
   <title>Einkauf erfassen</title>
-  
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-  
   <style>
-    /* Grundeinstellungen */
     :root {{
       --primary-color: #2563eb;
       --bg-color: #f3f4f6;
@@ -217,7 +237,6 @@ def einkaufs_formular():
       color: var(--text-color);
       margin: 0;
       padding: 20px;
-      /* "rem" passt sich der Handy-Einstellung an. 1.1rem ist gut lesbar. */
       font-size: 1.1rem; 
       line-height: 1.5;
     }}
@@ -246,22 +265,25 @@ def einkaufs_formular():
       font-size: 1rem;
     }}
 
-    /* Eingabefelder: Flexibel und gross genug */
     input, select, textarea {{
       width: 100%;
       padding: 14px;
       border: 1px solid #d1d5db;
       border-radius: 10px;
       background: #fff;
-      font-size: 1.1rem; /* Passt sich an */
-      box-sizing: border-box; /* Verhindert, dass es breiter als der Screen wird */
-      -webkit-appearance: none; /* Macht native Styles weg (hilft bei iPhone/Oppo) */
+      font-size: 1.1rem; 
+      box-sizing: border-box;
+      -webkit-appearance: none;
     }}
 
-    /* Verstecktes Feld für den Monat */
-    .hidden-field {{
-        display: none;
+    optgroup {{
+        font-weight: bold;
+        font-style: normal;
+        color: #666;
+        background-color: #eee;
     }}
+
+    .hidden-field {{ display: none; }}
 
     button {{
       width: 100%;
@@ -277,17 +299,9 @@ def einkaufs_formular():
       box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }}
 
-    button:active {{
-      transform: scale(0.98);
-      background-color: #1d4ed8;
-    }}
+    button:active {{ transform: scale(0.98); background-color: #1d4ed8; }}
 
-    #msg {{
-      text-align: center;
-      font-weight: bold;
-      margin-top: 16px;
-      min-height: 1.5em;
-    }}
+    #msg {{ text-align: center; font-weight: bold; margin-top: 16px; min-height: 1.5em; }}
 
     .footer-row {{
       margin-top: 20px;
@@ -299,19 +313,13 @@ def einkaufs_formular():
       font-size: 1rem;
     }}
 
-    .sum {{
-      font-weight: bold;
-      color: var(--primary-color);
-      font-size: 1.2rem;
-    }}
+    .sum {{ font-weight: bold; color: var(--primary-color); font-size: 1.2rem; }}
   </style>
 </head>
 <body>
-
   <div class="container">
     <h1>Einkauf erfassen</h1>
     <form id="txForm">
-      
       <label for="name">Was?</label>
       <input id="name" name="name" type="text" placeholder="z.B. Migros" required>
 
@@ -353,37 +361,23 @@ def einkaufs_formular():
     const lebTotalSpan = document.getElementById("lebTotal");
     const monatLabel = document.getElementById("monatLabel");
 
-    const monthNames = [
-        "Januar", "Februar", "März", "April", "Mai", "Juni",
-        "Juli", "August", "September", "Oktober", "November", "Dezember"
-    ];
+    const monthNames = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 
     function autoSelectMonth() {{
         const dateVal = dateInput.value; 
         if(!dateVal) return;
-
         const d = new Date(dateVal);
-        const monthIndex = d.getMonth(); 
-        const fullYear = d.getFullYear(); 
-        const shortYear = String(fullYear).slice(-2); 
-
-        const targetString = monthNames[monthIndex] + " " + shortYear;
+        const targetString = monthNames[d.getMonth()] + " " + String(d.getFullYear()).slice(-2);
         
-        let found = false;
         for (let i = 0; i < monatSelect.options.length; i++) {{
             if (monatSelect.options[i].text === targetString) {{
                 monatSelect.selectedIndex = i;
-                found = true;
-                break;
+                updateTotal();
+                return;
             }}
         }}
-
-        if(found) {{
-            updateTotal();
-        }} else {{
-            monatLabel.textContent = targetString + " (?)";
-            lebTotalSpan.textContent = "—";
-        }}
+        monatLabel.textContent = targetString + " (?)";
+        lebTotalSpan.textContent = "—";
     }}
 
     async function updateTotal() {{
@@ -391,59 +385,40 @@ def einkaufs_formular():
       monatLabel.textContent = "(" + monat + ")";
       try {{
         const res = await fetch("/lebensmittel_sum?monat=" + encodeURIComponent(monat));
-        if (!res.ok) throw new Error("Fehler");
         const data = await res.json();
-        const sum = typeof data.sum === "number" ? data.sum : 0;
-        lebTotalSpan.textContent = sum.toFixed(2);
-      }} catch (err) {{
-        console.error(err);
-        lebTotalSpan.textContent = "—";
-      }}
+        lebTotalSpan.textContent = (data.sum || 0).toFixed(2);
+      }} catch (err) {{ lebTotalSpan.textContent = "—"; }}
     }}
 
     dateInput.addEventListener("change", autoSelectMonth);
-
-    document.addEventListener("DOMContentLoaded", () => {{
-        autoSelectMonth();
-    }});
+    document.addEventListener("DOMContentLoaded", autoSelectMonth);
 
     form.addEventListener("submit", async (e) => {{
       e.preventDefault();
       msg.textContent = "Speichere...";
       msg.style.color = "black";
-
-      const betragRaw = document.getElementById("betrag").value.trim();
-      const betragNorm = betragRaw.replace(",", ".");
-
       const data = {{
         name: document.getElementById("name").value,
-        betrag: parseFloat(betragNorm),
+        betrag: parseFloat(document.getElementById("betrag").value.replace(",", ".")),
         datum: document.getElementById("datum").value,
         kategorie: document.getElementById("kategorie").value,
         monat: monatSelect.value,
         notiz: document.getElementById("notiz").value || null,
       }};
-
       try {{
         const res = await fetch("/add", {{
           method: "POST",
           headers: {{ "Content-Type": "application/json" }},
           body: JSON.stringify(data),
         }});
-
-        if (!res.ok) throw new Error("Fehler");
-
+        if (!res.ok) throw new Error();
         msg.textContent = "Gespeichert ✅";
         msg.style.color = "green";
-
         document.getElementById("name").value = "";
         document.getElementById("betrag").value = "";
         document.getElementById("notiz").value = "";
-        document.getElementById("name").focus();
-        
         updateTotal();
       }} catch (err) {{
-        console.error(err);
         msg.textContent = "Fehler beim Speichern ❌";
         msg.style.color = "red";
       }}
