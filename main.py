@@ -9,11 +9,9 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 # -----------------------------------------------------------
-# Konfiguration / Notion-Setup
+# Konfiguration
 # -----------------------------------------------------------
-
 load_dotenv()
-
 NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DB_TRANSAKT_ID = os.getenv("NOTION_TRANSAKT_DB_ID")
 DB_KATEG_ID = os.getenv("NOTION_KATEG_DB_ID")
@@ -43,7 +41,6 @@ class OptionsResponse(BaseModel):
 # -----------------------------------------------------------
 # Hilfsfunktionen
 # -----------------------------------------------------------
-
 def query_database(database_id: str, payload: Optional[dict] = None) -> dict:
     url = f"{NOTION_API_BASE}/databases/{database_id}/query"
     try:
@@ -51,7 +48,7 @@ def query_database(database_id: str, payload: Optional[dict] = None) -> dict:
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        print(f"Fehler bei DB {database_id}: {e}")
+        print(f"!!! FEHLER bei DB {database_id}: {e}")
         return {"results": []}
 
 def get_names_from_db(database_id: str) -> List[str]:
@@ -78,22 +75,15 @@ def get_lebensmittel_sum_for_month(monat_name: str) -> float:
     if not month_id or not cat_id: return 0.0
     payload = {"filter": {"and": [{"property": "Monat", "relation": {"contains": month_id}}, {"property": "Kategorien", "relation": {"contains": cat_id}}]}}
     data = query_database(DB_TRANSAKT_ID, payload)
-    total = sum(page.get("properties", {}).get("Betrag", {}).get("number", 0) for page in data.get("results", []))
-    return total
-
-def load_options() -> OptionsResponse:
-    kats = get_names_from_db(DB_KATEG_ID) if DB_KATEG_ID else []
-    mons = get_names_from_db(DB_MONAT_ID) if DB_MONAT_ID else []
-    return OptionsResponse(kategorien=kats, monate=mons)
+    return sum(page.get("properties", {}).get("Betrag", {}).get("number", 0) for page in data.get("results", []))
 
 # -----------------------------------------------------------
-# FastAPI App
+# App & Routen
 # -----------------------------------------------------------
-
 app = FastAPI()
 
 @app.get("/")
-def read_root(): return {"status": "online"}
+def read_root(): return {"status": "v3-online"}
 
 @app.get("/lebensmittel_sum")
 def lebensmittel_sum(monat: str):
@@ -103,61 +93,60 @@ def lebensmittel_sum(monat: str):
 def add_transaction(tx: Transaction):
     cat_id = find_page_id_by_name(DB_KATEG_ID, tx.kategorie)
     month_id = find_page_id_by_name(DB_MONAT_ID, tx.monat)
-    properties = {
+    props = {
         "Name": {"title": [{"text": {"content": tx.name}}]},
         "Betrag": {"number": tx.betrag},
         "Datum": {"date": {"start": tx.datum}},
         "Kategorie_Text": {"rich_text": [{"text": {"content": tx.kategorie}}]},
         "Notiz": {"rich_text": [{"text": {"content": tx.notiz}}] if tx.notiz else []},
     }
-    if cat_id: properties["Kategorien"] = {"relation": [{"id": cat_id}]}
-    if month_id: properties["Monat"] = {"relation": [{"id": month_id}]}
-    resp = requests.post(f"{NOTION_API_BASE}/pages", headers=http_headers, json={"parent": {"database_id": DB_TRANSAKT_ID}, "properties": properties})
-    resp.raise_for_status()
+    if cat_id: props["Kategorien"] = {"relation": [{"id": cat_id}]}
+    if month_id: props["Monat"] = {"relation": [{"id": month_id}]}
+    requests.post(f"{NOTION_API_BASE}/pages", headers=http_headers, json={"parent": {"database_id": DB_TRANSAKT_ID}, "properties": props}).raise_for_status()
     return {"status": "ok"}
-
-# -----------------------------------------------------------
-# Das Formular mit Sortierung & Gruppierung
-# -----------------------------------------------------------
 
 @app.get("/formular", response_class=HTMLResponse)
 def einkaufs_formular():
-    options = load_options()
+    kats_raw = get_names_from_db(DB_KATEG_ID)
+    mons_raw = get_names_from_db(DB_MONAT_ID)
     today = date.today().isoformat()
     
-    # 1. Deine Wunsch-Gruppen
-    gruppen = {
-        "Alltag & Haushalt": ["Shopping", "Restaurant", "Lebensmittel"],
-        "Wohnen & Fixkosten": ["Wohnen Nebenkosten", "Serafe", "Steuern Bund"],
-        "Versicherungen": ["Versicherungen Mobi Haus", "Versicherung GS"],
+    # DEBUG: Zeigt uns in Render genau, was Notion schickt
+    print(f"DEBUG: Gefundene Kategorien in Notion: {kats_raw}")
+
+    # 1. Deine Gruppen-Logik (Case-Insensitive)
+    gruppen_def = {
+        "Alltag": ["Shopping", "Restaurant", "Lebensmittel"],
+        "Wohnen": ["Wohnen Nebenkosten", "Serafe", "Steuern Bund"],
+        "Versicherung": ["Versicherungen Mobi Haus", "Versicherung GS"],
         "Freizeit": ["Reisen", "Freizeit"]
     }
 
-    # Notion-Kategorien säubern (Leerzeichen entfernen)
-    notion_kats_clean = {k.strip(): k for k in options.kategorien}
     kategorie_html = ""
     verarbeitet = set()
 
-    # 2. Gruppen-HTML bauen
-    for g_name, g_kats in gruppen.items():
-        vorhanden = [notion_kats_clean[k] for k in g_kats if k in notion_kats_clean]
-        if vorhanden:
-            kategorie_html += f'<optgroup label="--- {g_name} ---">'
-            for kat in vorhanden:
-                sel = ' selected' if kat == "Lebensmittel" else ""
-                kategorie_html += f'<option value="{kat}"{sel}>{kat}</option>'
-                verarbeitet.add(kat)
-            kategorie_html += '</optgroup>'
+    # 2. Gruppen bauen mit Case-Insensitive Matching
+    for g_title, g_list in gruppen_def.items():
+        html_inner = ""
+        for target in g_list:
+            for real_name in kats_raw:
+                if target.strip().lower() == real_name.strip().lower():
+                    sel = ' selected' if "lebensmittel" in real_name.lower() else ""
+                    html_inner += f'<option value="{real_name}"{sel}>{real_name}</option>'
+                    verarbeitet.add(real_name)
+                    break
+        if html_inner:
+            kategorie_html += f'<optgroup label="--- {g_title} ---">{html_inner}</optgroup>'
 
-    # 3. Restliche Kategorien alphabetisch
-    rest = sorted([k for k in options.kategorien if k not in verarbeitet])
+    # 3. Rest alphabetisch
+    rest = sorted([k for k in kats_raw if k not in verarbeitet])
     if rest:
         kategorie_html += '<optgroup label="--- Diverses ---">'
-        for kat in rest:
-            kategorie_html += f'<option value="{kat}">{kat}</option>'
+        for r in rest:
+            kategorie_html += f'<option value="{r}">{r}</option>'
         kategorie_html += '</optgroup>'
 
-    monat_html = "".join(f'<option value="{m}">{m}</option>' for m in options.monate)
+    monat_html = "".join(f'<option value="{m}">{m}</option>' for m in mons_raw)
 
     return HTMLResponse(content=f"""
 <!DOCTYPE html>
@@ -165,23 +154,22 @@ def einkaufs_formular():
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Einkauf (v2)</title>
+    <title>Einkauf v3</title>
     <style>
         :root {{ --p: #2563eb; --bg: #f3f4f6; }}
-        body {{ font-family: sans-serif; background: var(--bg); padding: 20px; font-size: 1.1rem; }}
-        .card {{ max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-        h1 {{ color: var(--p); text-align: center; font-size: 1.4rem; }}
+        body {{ font-family: sans-serif; background: var(--bg); padding: 15px; font-size: 1.1rem; }}
+        .card {{ max-width: 500px; margin: 0 auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+        h1 {{ color: var(--p); text-align: center; margin-bottom: 20px; border-bottom: 2px solid var(--p); padding-bottom: 10px; }}
         label {{ display: block; margin: 15px 0 5px; font-weight: bold; }}
-        input, select, textarea {{ width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 1.1rem; }}
-        optgroup {{ background: #eee; font-weight: bold; }}
-        button {{ width: 100%; margin-top: 20px; padding: 15px; background: var(--p); color: white; border: none; border-radius: 10px; font-weight: bold; font-size: 1.2rem; cursor: pointer; }}
-        #msg {{ text-align: center; margin-top: 10px; font-weight: bold; }}
-        .footer {{ margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; display: flex; justify-content: space-between; }}
+        input, select, textarea {{ width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; font-size: 1.1rem; -webkit-appearance: none; }}
+        optgroup {{ background: #f0f0f0; font-weight: bold; color: #444; }}
+        button {{ width: 100%; margin-top: 25px; padding: 16px; background: var(--p); color: white; border: none; border-radius: 10px; font-weight: bold; font-size: 1.2rem; }}
+        .footer {{ margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; display: flex; justify-content: space-between; align-items: center; }}
     </style>
 </head>
 <body>
     <div class="card">
-        <h1>Einkauf erfassen (v2)</h1>
+        <h1>Einkauf V3 ✅</h1>
         <form id="f">
             <label>Was?</label><input id="n" type="text" placeholder="z.B. Migros" required>
             <label>Betrag (CHF)</label><input id="b" type="number" step="0.01" inputmode="decimal" required>
@@ -190,49 +178,52 @@ def einkaufs_formular():
             <div style="display:none"><select id="m">{monat_html}</select></div>
             <label>Notiz</label><textarea id="no" rows="2"></textarea>
             <button type="submit">Speichern</button>
-            <p id="msg"></p>
+            <p id="msg" style="text-align:center; font-weight:bold;"></p>
             <div class="footer">
                 <span>Lebensmittel <br><small id="ml">...</small>:</span>
-                <span id="lt" style="font-weight:bold; color:var(--p)">...</span>
+                <span id="lt" style="font-weight:bold; color:var(--p); font-size: 1.3rem;">...</span>
             </div>
         </form>
     </div>
     <script>
-        const monthNames = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
-        async function updateSum() {{
+        const months = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+        async function up() {{
             const m = document.getElementById("m").value;
             document.getElementById("ml").textContent = "(" + m + ")";
             const r = await fetch("/lebensmittel_sum?monat=" + encodeURIComponent(m));
             const d = await r.json();
             document.getElementById("lt").textContent = (d.sum || 0).toFixed(2);
         }}
-        function setMonth() {{
+        function setM() {{
             const d = new Date(document.getElementById("d").value);
-            const target = monthNames[d.getMonth()] + " " + String(d.getFullYear()).slice(-2);
-            const sel = document.getElementById("m");
-            for(let i=0; i<sel.options.length; i++) {{
-                if(sel.options[i].text === target) {{ sel.selectedIndex = i; updateSum(); break; }}
+            const t = months[d.getMonth()] + " " + String(d.getFullYear()).slice(-2);
+            const s = document.getElementById("m");
+            for(let i=0; i<s.options.length; i++) {{
+                if(s.options[i].text === t) {{ s.selectedIndex = i; up(); break; }}
             }}
         }}
-        document.getElementById("d").addEventListener("change", setMonth);
-        window.onload = setMonth;
+        document.getElementById("d").onchange = setM;
+        window.onload = setM;
         document.getElementById("f").onsubmit = async (e) => {{
             e.preventDefault();
-            document.getElementById("msg").textContent = "Speichere...";
-            const data = {{
-                name: document.getElementById("n").value,
-                betrag: parseFloat(document.getElementById("b").value),
-                datum: document.getElementById("d").value,
-                kategorie: document.getElementById("k").value,
-                monat: document.getElementById("m").value,
-                notiz: document.getElementById("no").value || null
-            }};
-            const res = await fetch("/add", {{ method: "POST", headers: {{"Content-Type":"application/json"}}, body: JSON.stringify(data) }});
+            document.getElementById("msg").textContent = "⏳ Speichere...";
+            const res = await fetch("/add", {{ 
+                method: "POST", 
+                headers: {{"Content-Type":"application/json"}}, 
+                body: JSON.stringify({{
+                    name: document.getElementById("n").value,
+                    betrag: parseFloat(document.getElementById("b").value),
+                    datum: document.getElementById("d").value,
+                    kategorie: document.getElementById("k").value,
+                    monat: document.getElementById("m").value,
+                    notiz: document.getElementById("no").value || null
+                }}) 
+            }});
             if(res.ok) {{
-                document.getElementById("msg").textContent = "Gespeichert ✅";
+                document.getElementById("msg").textContent = "✅ Gespeichert!";
                 document.getElementById("n").value = ""; document.getElementById("b").value = "";
-                updateSum();
-            }} else {{ document.getElementById("msg").textContent = "Fehler ❌"; }}
+                up();
+            }} else {{ document.getElementById("msg").textContent = "❌ Fehler!"; }}
         }};
     </script>
 </body>
